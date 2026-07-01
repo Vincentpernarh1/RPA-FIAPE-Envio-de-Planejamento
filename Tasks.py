@@ -43,7 +43,7 @@ def process_planejamento(q=None):
             q.put(("progress", 15))
        
         current_date = date.today()
-        weeknumber = current_date.isocalendar()[1]
+        weeknumber = current_date.isocalendar()[1]+1
         
         if q:
             msg = f"📅 Processando arquivos para a semana {weeknumber}..."
@@ -76,13 +76,17 @@ def process_planejamento(q=None):
             print(msg)
             q.put(("progress", 30))
             
+            
         for file in os.listdir(planejamento_path):
+            
             if file.endswith(".xlsx") and  "diretos" in file.lower() and f"w{weeknumber}" in file.lower() and not file.startswith("~$"):
                 planejamento_file = os.path.join(planejamento_path, file)
                 
                 # First, read all columns to check what exists
                 df_Planejado_temp = pd.read_excel(planejamento_file, sheet_name='Planejado', nrows=0, header=1)
                 available_columns = df_Planejado_temp.columns.tolist()
+                
+                # print(f"📋 Colunas disponíveis: {', '.join(str(col) for col in available_columns)}")
                 
                 # if q:
                 #     q.put(("status", f"📋 Colunas disponíveis: {', '.join(str(col) for col in available_columns)}"))
@@ -151,6 +155,8 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
     6. Format email content as HTML table
     7. Create email structure dictionary
     """
+    
+    
     
     try:
         if q:

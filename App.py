@@ -281,304 +281,318 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
             
             # Try to create a test email (first email from the list)
             if email_list and len(email_list) > 0:
+                
+                
                 try:
                     test_email = email_list[0]
-                    if test_mode:
-                        msg = f"📧 TESTE: Criando email para {test_email['supplier_name']} (usando emails de teste)"
-                    else:
-                        msg = f"📧 PRODUÇÃO: Criando email para {test_email['supplier_name']}"
-                    q.put(("status", msg))
-                    print(msg)
                     
-                    if not test_mode:
-                        # Only print real email counts in production mode
-                        print(f"   TO: {len(test_email['to_emails'])} emails (transportadora + fornecedor)")
-                        print(f"   CC: {len([e for e in test_email['cc_emails'].split(';') if e.strip()])} emails Stellantis")
-                    
-                    # Wait a bit for page to be fully interactive
-                    page.wait_for_timeout(3000)
-                    
-                    # Try to find and click "New Email" button
-                    # Common selectors for Outlook Web
-                    new_email_selectors = [
-                        "button[aria-label*='New mail']",
-                        "button[aria-label*='Nova mensagem']",
-                        "button[aria-label*='New message']",
-                        "button:has-text('New mail')",
-                        "button:has-text('Nova mensagem')",
-                        "[data-automation-id='newMessageButton']",
-                        "div[role='button']:has-text('New')",
-                    ]
-                    
-                    clicked = False
-                    for selector in new_email_selectors:
-                        try:
-                            page.click(selector, timeout=2000)
-                            clicked = True
-                            msg = "✅ Botão 'Novo Email' clicado"
-                            q.put(("status", msg))
-                            print(msg)
-                            break
-                        except:
-                            continue
-                    
-                    if not clicked:
-                        msg = "⚠️ Não foi possível encontrar o botão 'Novo Email'. Clique manualmente."
+                    for email_index, test_email in enumerate(email_list, start=1):
+                        if test_mode:
+                            msg = f"📧 TESTE: Criando email para {test_email['supplier_name']} (usando emails de teste)"
+                        else:
+                            msg = f"📧 PRODUÇÃO: Criando email para {test_email['supplier_name']}"
                         q.put(("status", msg))
                         print(msg)
-                        page.wait_for_timeout(5000)
-                    else:
-                        # Wait for compose window to open
+                        
+                        if not test_mode:
+                            # Only print real email counts in production mode
+                            print(f"   TO: {len(test_email['to_emails'])} emails (transportadora + fornecedor)")
+                            print(f"   CC: {len([e for e in test_email['cc_emails'].split(';') if e.strip()])} emails Stellantis")
+                        
+                        # Wait a bit for page to be fully interactive
                         page.wait_for_timeout(3000)
                         
-                        # Try to fill in the TO field
-                        msg = "📝 Preenchendo campo Para (TO)..."
-                        q.put(("status", msg))
-                        print(msg)
-                        
-                        # Conditional logic: Test mode vs Production mode
-                        if test_mode:
-                            # TEST MODE: Use emails from .env EMAIL_TESTE
-                            test_emails_str = os.getenv("EMAIL_TESTE", "vpernarh@gmail.com")
-                            to_emails_list = [email.strip() for email in test_emails_str.split(',') if email.strip()]
-                            msg = f"🧪 MODO DE TESTE: Enviando para {', '.join(to_emails_list)}"
-                            q.put(("status", msg))
-                            print(msg)
-                        else:
-                            # PRODUCTION MODE: Use all real emails (transportadora + fornecedor)
-                            to_emails_list = test_email['to_emails']
-                            msg = f"📧 MODO PRODUÇÃO: {len(to_emails_list)} emails no campo TO"
-                            q.put(("status", msg))
-                            print(msg)
-                        
-                        to_filled = False
-                        try:
-                            # Find the Para div by aria-label
-                            to_field = page.locator('div[aria-label="Para"]').first
-                            to_field.click(timeout=3000)
-                            page.wait_for_timeout(500)
-                            
-                            # Type each email and press Enter to create chip
-                            for idx, email in enumerate(to_emails_list):
-                                page.keyboard.type(email, delay=1)
-                                page.wait_for_timeout(300)
-                                page.keyboard.press("Enter")
-                                page.wait_for_timeout(500)
-                                # msg = f"   → Email {idx+1}/{len(to_emails_list)} adicionado: {email}"
-                                # q.put(("status", msg))
-                                # print(msg)
-                            
-                            msg = f"✅ Campo TO preenchido com {len(to_emails_list)} emails"
-                            q.put(("status", msg))
-                            # print(msg)
-                            to_filled = True
-                        except Exception as e:
-                            error_msg = f"⚠️ Erro ao preencher TO: {str(e)[:80]}"
-                            q.put(("status", error_msg))
-                            print(error_msg)
-                        
-                        if not to_filled:
-                            warning_msg = "⚠️ TO não preenchido automaticamente. Verifique os selectors."
-                            q.put(("status", warning_msg))
-                            print(warning_msg)
-                        
-                        # Conditional CC Field: Skip in test mode, fill in production mode
-                        if test_mode:
-                            # SKIP CC FIELD IN TEST MODE
-                            msg = "🧪 MODO DE TESTE: Pulando campo CC (apenas testando TO e ENVIAR)"
-                            q.put(("status", msg))
-                            print(msg)
-                        else:
-                            # PRODUCTION MODE: Fill CC field with Stellantis emails
-                            page.wait_for_timeout(1000)
-                            msg = "📝 Preenchendo campo Cc..."
-                            q.put(("status", msg))
-                            print(msg)
-                            
-                            # CC emails are a semicolon-separated string
-                            cc_emails_str = test_email['cc_emails']
-                            cc_count = len([e for e in cc_emails_str.split(';') if e.strip()])
-                            print(f"   Total de {cc_count} emails Stellantis para CC")
-                            
-                            # Click Cc button to show CC field if hidden
-                            try:
-                                page.get_by_text("Cc", exact=False).click(timeout=2000)
-                                page.wait_for_timeout(500)
-                                msg = "   → Campo Cc expandido"
-                                q.put(("status", msg))
-                                print(msg)
-                            except:
-                                msg = "   → Cc já visível ou botão não encontrado"
-                                q.put(("status", msg))
-                                print(msg)
-                            
-                            cc_filled = False
-                            try:
-                                # Find CC div by aria-label
-                                cc_field = page.locator('div[aria-label="Cc"]').first
-                                cc_field.click(timeout=2000)
-                                page.wait_for_timeout(500)
-                                
-                                # Paste the entire semicolon-separated string at once
-                                page.keyboard.type(cc_emails_str, delay=1)
-                                page.wait_for_timeout(500)
-                                
-                                # Press Enter once to create all email chips
-                                page.keyboard.press("Enter")
-                                page.wait_for_timeout(1000)
-                                
-                                msg = f"✅ Campo CC preenchido com {cc_count} emails Stellantis"
-                                q.put(("status", msg))
-                                print(msg)
-                                cc_filled = True
-                            except Exception as e:
-                                error_msg = f"⚠️ Erro ao preencher CC: {str(e)[:80]}"
-                                q.put(("status", error_msg))
-                                print(error_msg)
-                            
-                            if not cc_filled:
-                                warning_msg = "⚠️ CC não preenchido automaticamente"
-                                q.put(("status", warning_msg))
-                                print(warning_msg)
-                        
-                        # Try to fill in Subject
-                        page.wait_for_timeout(1000)
-                        q.put(("status", "📝 Preenchendo assunto..."))
-                        print("📝 Preenchendo assunto...")
-                        
-                        subject_selectors = [
-                            "input[aria-label*='Assunto']",
-                            "input[aria-label*='Subject']",
-                            "[data-automation-id='subject-field'] input",
-                            "input[placeholder*='Assunto']",
+                        # Try to find and click "New Email" button
+                        # Common selectors for Outlook Web
+                        new_email_selectors = [
+                            "button[aria-label*='New mail']",
+                            "button[aria-label*='Nova mensagem']",
+                            "button[aria-label*='New message']",
+                            "button:has-text('New mail')",
+                            "button:has-text('Nova mensagem')",
+                            "[data-automation-id='newMessageButton']",
+                            "div[role='button']:has-text('New')",
                         ]
                         
-                        subject_filled = False
-                        for selector in subject_selectors:
-                            try:
-                                page.fill(selector, test_email['subject'], timeout=2000)
-                                msg = "✅ Assunto preenchido"
-                                q.put(("status", msg))
-                                print(msg)
-                                subject_filled = True
-                                break
-                            except:
-                                continue
-                        
-                        if not subject_filled:
-                            warning_msg = "⚠️ Assunto não preenchido"
-                            q.put(("status", warning_msg))
-                            print(warning_msg)
-                        
-                        # Try to fill in Body with formatted HTML
-                        page.wait_for_timeout(1000)
-                        q.put(("status", "📝 Preenchendo corpo do email (HTML)..."))
-                        print("📝 Preenchendo corpo do email (HTML)...")
-                        
-                        body_selectors = [
-                            "div[aria-label*='Corpo da mensagem']",
-                            "div[aria-label*='Message body']",
-                            "[role='textbox'][aria-label*='mensagem']",
-                            "div[contenteditable='true']",
-                        ]
-                        
-                        body_filled = False
-                        for selector in body_selectors:
-                            try:
-                                body_element = page.locator(selector).first
-                                # Click to focus
-                                body_element.click(timeout=2000)
-                                page.wait_for_timeout(500)
-                                
-                                # Clear any existing content
-                                page.keyboard.press("Control+A")
-                                page.keyboard.press("Backspace")
-                                
-                                # Insert HTML content using JavaScript
-                                escaped_html = test_email['content_html'].replace('`', '\\`').replace('$', '\\$')
-                                body_element.evaluate(f"""
-                                    (element) => {{
-                                        element.innerHTML = `{escaped_html}`;
-                                    }}
-                                """)
-                                
-                                msg = "✅ Corpo do email preenchido com tabela formatada"
-                                q.put(("status", msg))
-                                print(msg)
-                                body_filled = True
-                                break
-                            except Exception as e:
-                                error_msg = f"⚠️ Tentativa de preencher body falhou: {str(e)[:50]}"
-                                q.put(("status", error_msg))
-                                print(error_msg)
-                                continue
-                        
-                        if not body_filled:
-                            warning_msg = "⚠️ Corpo do email não foi preenchido"
-                            q.put(("status", warning_msg))
-                            print(warning_msg)
-                        
-                        
-                        if test_mode:
-                            msg = "✅ Email de TESTE criado!"
-                        else:
-                            msg = "✅ Email de PRODUÇÃO criado!"
-                        q.put(("status", msg))
-                        print(msg)
-                        
-                        # Try to click SEND button
-                        page.wait_for_timeout(2000)  # Wait 2 seconds before sending
-                        msg = "📤 Tentando clicar no botão ENVIAR..."
-                        q.put(("status", msg))
-                        print(msg)
-                        
-                        send_selectors = [
-                            "button[aria-label*='Enviar']",
-                            "button[aria-label*='Send']",
-                            "button:has-text('Enviar')",
-                            "button:has-text('Send')",
-                            "[data-automation-id='sendButton']",
-                            "button[name='send']",
-                        ]
-                        
-                        send_clicked = False
-                        for selector in send_selectors:
+                        clicked = False
+                        for selector in new_email_selectors:
                             try:
                                 page.click(selector, timeout=2000)
-                                send_clicked = True
-                                msg = "✅ Botão ENVIAR clicado com sucesso!"
+                                clicked = True
+                                msg = "✅ Botão 'Novo Email' clicado"
                                 q.put(("status", msg))
                                 print(msg)
                                 break
                             except:
                                 continue
                         
-                        if not send_clicked:
-                            msg = "⚠️ Não foi possível encontrar o botão ENVIAR automaticamente."
+                        if not clicked:
+                            msg = "⚠️ Não foi possível encontrar o botão 'Novo Email'. Clique manualmente."
                             q.put(("status", msg))
                             print(msg)
-                            msg = "🔍 Verifique a página - o email pode estar em rascunhos."
-                            q.put(("status", msg))
-                            print(msg)
-                            msg = "⏸️ Aguardando 30 segundos para você verificar..."
-                            q.put(("status", msg))
-                            print(msg)
-                            page.wait_for_timeout(30000)  # Wait 30 seconds if send failed
+                            page.wait_for_timeout(5000)
                         else:
-                            # Wait to confirm send
+                            # Wait for compose window to open
                             page.wait_for_timeout(3000)
+                            
+                            # Try to fill in the TO field
+                            msg = "📝 Preenchendo campo Para (TO)..."
+                            q.put(("status", msg))
+                            print(msg)
+                            
+                            # Conditional logic: Test mode vs Production mode
                             if test_mode:
+                                # TEST MODE: Use emails from .env EMAIL_TESTE
                                 test_emails_str = os.getenv("EMAIL_TESTE", "vpernarh@gmail.com")
-                                msg = f"✅ Email de teste enviado! Verifique: {test_emails_str}"
+                                to_emails_list = [email.strip() for email in test_emails_str.split(',') if email.strip()]
+                                msg = f"🧪 MODO DE TESTE: Enviando para {', '.join(to_emails_list)}"
+                                q.put(("status", msg))
+                                print(msg)
                             else:
-                                msg = f"✅ Email enviado para {test_email['supplier_name']}!"
+                                # PRODUCTION MODE: Use all real emails (transportadora + fornecedor)
+                                to_emails_list = test_email['to_emails']
+                                msg = f"📧 MODO PRODUÇÃO: {len(to_emails_list)} emails no campo TO"
+                                q.put(("status", msg))
+                                print(msg)
+                            
+                            
+                            
+                            to_filled = False
+                            try:
+                                # Find the Para div by aria-label
+                                to_field = page.locator('div[aria-label="Para"]').first
+                                to_field.click(timeout=3000)
+                                page.wait_for_timeout(500)
+                                
+                                # Type each email and press Enter to create chip
+                                for idx, email in enumerate(to_emails_list):
+                                    page.keyboard.type(email, delay=1)
+                                    page.wait_for_timeout(300)
+                                    page.keyboard.press("Enter")
+                                    page.wait_for_timeout(500)
+                                    # msg = f"   → Email {idx+1}/{len(to_emails_list)} adicionado: {email}"
+                                    # q.put(("status", msg))
+                                    # print(msg)
+                                
+                                msg = f"✅ Campo TO preenchido com {len(to_emails_list)} emails"
+                                q.put(("status", msg))
+                                # print(msg)
+                                to_filled = True
+                            except Exception as e:
+                                error_msg = f"⚠️ Erro ao preencher TO: {str(e)[:80]}"
+                                q.put(("status", error_msg))
+                                print(error_msg)
+                            
+                            if not to_filled:
+                                warning_msg = "⚠️ TO não preenchido automaticamente. Verifique os selectors."
+                                q.put(("status", warning_msg))
+                                print(warning_msg)
+                            
+                            # Conditional CC Field: Skip in test mode, fill in production mode
+                            if test_mode:
+                                # SKIP CC FIELD IN TEST MODE
+                                msg = "🧪 MODO DE TESTE: Pulando campo CC (apenas testando TO e ENVIAR)"
+                                q.put(("status", msg))
+                                print(msg)
+                            else:
+                                # PRODUCTION MODE: Fill CC field with Stellantis emails
+                                page.wait_for_timeout(1000)
+                                msg = "📝 Preenchendo campo Cc..."
+                                q.put(("status", msg))
+                                print(msg)
+                                
+                                # CC emails are a semicolon-separated string
+                                cc_emails_str = test_email['cc_emails']
+                                cc_count = len([e for e in cc_emails_str.split(';') if e.strip()])
+                                print(f"   Total de {cc_count} emails Stellantis para CC")
+                                
+                                # Click Cc button to show CC field if hidden
+                                try:
+                                    page.get_by_text("Cc", exact=False).click(timeout=2000)
+                                    page.wait_for_timeout(500)
+                                    msg = "   → Campo Cc expandido"
+                                    q.put(("status", msg))
+                                    print(msg)
+                                except:
+                                    msg = "   → Cc já visível ou botão não encontrado"
+                                    q.put(("status", msg))
+                                    print(msg)
+                                
+                                cc_filled = False
+                                try:
+                                    # Find CC div by aria-label
+                                    cc_field = page.locator('div[aria-label="Cc"]').first
+                                    cc_field.click(timeout=2000)
+                                    page.wait_for_timeout(500)
+                                    
+                                    # Paste the entire semicolon-separated string at once
+                                    page.keyboard.type(cc_emails_str, delay=1)
+                                    page.wait_for_timeout(500)
+                                    
+                                    # Press Enter once to create all email chips
+                                    page.keyboard.press("Enter")
+                                    page.wait_for_timeout(1000)
+                                    
+                                    msg = f"✅ Campo CC preenchido com {cc_count} emails Stellantis"
+                                    q.put(("status", msg))
+                                    print(msg)
+                                    cc_filled = True
+                                except Exception as e:
+                                    error_msg = f"⚠️ Erro ao preencher CC: {str(e)[:80]}"
+                                    q.put(("status", error_msg))
+                                    print(error_msg)
+                                
+                                if not cc_filled:
+                                    warning_msg = "⚠️ CC não preenchido automaticamente"
+                                    q.put(("status", warning_msg))
+                                    print(warning_msg)
+                            
+                            # Try to fill in Subject
+                            page.wait_for_timeout(1000)
+                            q.put(("status", "📝 Preenchendo assunto..."))
+                            print("📝 Preenchendo assunto...")
+                            
+                            subject_selectors = [
+                                "input[aria-label*='Assunto']",
+                                "input[aria-label*='Subject']",
+                                "[data-automation-id='subject-field'] input",
+                                "input[placeholder*='Assunto']",
+                            ]
+                            
+                            subject_filled = False
+                            for selector in subject_selectors:
+                                try:
+                                    page.fill(selector, test_email['subject'], timeout=2000)
+                                    msg = "✅ Assunto preenchido"
+                                    q.put(("status", msg))
+                                    print(msg)
+                                    subject_filled = True
+                                    break
+                                except:
+                                    continue
+                            
+                            if not subject_filled:
+                                warning_msg = "⚠️ Assunto não preenchido"
+                                q.put(("status", warning_msg))
+                                print(warning_msg)
+                            
+                            # Try to fill in Body with formatted HTML
+                            page.wait_for_timeout(1000)
+                            q.put(("status", "📝 Preenchendo corpo do email (HTML)..."))
+                            print("📝 Preenchendo corpo do email (HTML)...")
+                            
+                            body_selectors = [
+                                "div[aria-label*='Corpo da mensagem']",
+                                "div[aria-label*='Message body']",
+                                "[role='textbox'][aria-label*='mensagem']",
+                                "div[contenteditable='true']",
+                            ]
+                            
+                            body_filled = False
+                            for selector in body_selectors:
+                                try:
+                                    body_element = page.locator(selector).first
+                                    # Click to focus
+                                    body_element.click(timeout=2000)
+                                    page.wait_for_timeout(500)
+                                    
+                                    # Clear any existing content
+                                    page.keyboard.press("Control+A")
+                                    page.keyboard.press("Backspace")
+                                    
+                                    # Insert HTML content using JavaScript
+                                    escaped_html = test_email['content_html'].replace('`', '\\`').replace('$', '\\$')
+                                    body_element.evaluate(f"""
+                                        (element) => {{
+                                            element.innerHTML = `{escaped_html}`;
+                                        }}
+                                    """)
+                                    
+                                    msg = "✅ Corpo do email preenchido com tabela formatada"
+                                    q.put(("status", msg))
+                                    print(msg)
+                                    body_filled = True
+                                    break
+                                except Exception as e:
+                                    error_msg = f"⚠️ Tentativa de preencher body falhou: {str(e)[:50]}"
+                                    q.put(("status", error_msg))
+                                    print(error_msg)
+                                    continue
+                            
+                            if not body_filled:
+                                warning_msg = "⚠️ Corpo do email não foi preenchido"
+                                q.put(("status", warning_msg))
+                                print(warning_msg)
+                            
+                            
+                            if test_mode:
+                                msg = "✅ Email de TESTE criado!"
+                            else:
+                                msg = "✅ Email de PRODUÇÃO criado!"
                             q.put(("status", msg))
                             print(msg)
-                            msg = "⏸️ Aguardando 10 segundos antes de fechar..."
+                            
+                            # Try to click SEND button
+                            page.wait_for_timeout(2000)  # Wait 2 seconds before sending
+                            msg = "📤 Tentando clicar no botão ENVIAR..."
                             q.put(("status", msg))
                             print(msg)
-                            page.wait_for_timeout(10000)  # Keep browser open 10 seconds to verify
-                        
+                            
+                            send_selectors = [
+                                "button[aria-label*='Enviar']",
+                                "button[aria-label*='Send']",
+                                "button:has-text('Enviar')",
+                                "button:has-text('Send')",
+                                "[data-automation-id='sendButton']",
+                                "button[name='send']",
+                            ]
+                            
+                            send_clicked = False
+                            for selector in send_selectors:
+                                try:
+                                    page.click(selector, timeout=2000)
+                                    send_clicked = True
+                                    msg = "✅ Botão ENVIAR clicado com sucesso!"
+                                    q.put(("status", msg))
+                                    print(msg)
+                                    break
+                                except:
+                                    continue
+                            
+                            if not send_clicked:
+                                msg = "⚠️ Não foi possível encontrar o botão ENVIAR automaticamente."
+                                q.put(("status", msg))
+                                print(msg)
+                                msg = "🔍 Verifique a página - o email pode estar em rascunhos."
+                                q.put(("status", msg))
+                                print(msg)
+                                msg = "⏸️ Aguardando 30 segundos para você verificar..."
+                                q.put(("status", msg))
+                                print(msg)
+                                page.wait_for_timeout(30000)  # Wait 30 seconds if send failed
+                            else:
+                                # Wait to confirm send
+                                page.wait_for_timeout(3000)
+                                if test_mode:
+                                    test_emails_str = os.getenv("EMAIL_TESTE", "vpernarh@gmail.com")
+                                    msg = f"✅ Email de teste enviado! Verifique: {test_emails_str}"
+                                    
+                                else:
+                                    msg = f"✅ Email enviado para {test_email['supplier_name']}!"
+                                q.put(("status", msg))
+                                print(msg)
+                                msg = "⏸️ Aguardando 4 segundos para processar o proximo..."
+                                q.put(("status", msg))
+                                print(msg)
+                                page.wait_for_timeout(4000)  # Keep browser open 4 seconds to verify
+                                
+                        if test_mode:
+                                   
+                                    msg = f"✅ ending loop"
+                                    print(msg)
+                                    break
+                           
+                            
                 except Exception as e:
                     error_msg = f"⚠️ Erro ao criar email de teste: {e}"
                     q.put(("status", error_msg))
