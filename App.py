@@ -366,10 +366,10 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                                 
                                 # Type each email and press Enter to create chip
                                 for idx, email in enumerate(to_emails_list):
-                                    page.keyboard.type(email, delay=1)
-                                    page.wait_for_timeout(300)
+                                    page.keyboard.type(email, delay=0.2)
+                                    page.wait_for_timeout(200)
                                     page.keyboard.press("Enter")
-                                    page.wait_for_timeout(500)
+                                    page.wait_for_timeout(300)
                                     # msg = f"   → Email {idx+1}/{len(to_emails_list)} adicionado: {email}"
                                     # q.put(("status", msg))
                                     # print(msg)
@@ -546,6 +546,11 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                                 "[data-automation-id='sendButton']",
                                 "button[name='send']",
                             ]
+                            
+                            
+                            page.pause()  # Pause here
+                            
+                            continue
                             
                             send_clicked = False
                             for selector in send_selectors:
