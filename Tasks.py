@@ -1,6 +1,7 @@
 import email
 import json
 import os
+import re
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext
@@ -27,6 +28,36 @@ df_transportadoras = pd.DataFrame()
 df_stellantis = pd.DataFrame()
 df_fornecedores = pd.DataFrame()
 df_Planejado = pd.DataFrame()
+
+# GEOSHIP operates two SAP codes per pickup location, but they're really a single carrier/
+# recipient and must be sent as one email. The "GEOSHIP ..." Fornecedor labels used in the
+# planning sheet don't exist in the GERAL/FORNECEDORES sheets, so a designated real supplier
+# is used to look up the transportadora and the recipient emails for each pair.
+GEOSHIP_GROUPS = [
+    {
+        'saps': {'800023315', '800040308'},
+        'lookup_name': 'FLASH COVER CAP-Santa Fe Do Sul-SP',
+    },
+    {
+        'saps': {'800000507', '800005740'},
+        'lookup_name': 'HBA II - Monte Alto-SP (R Palmas)',
+    },
+]
+
+
+def _normalize_sap(sap):
+    """Normalize a SAP code to a plain digit string regardless of source dtype (int/float/str)."""
+    s = str(sap).strip()
+    if s.endswith('.0'):
+        s = s[:-2]
+    return s
+
+
+def _normalize_name(name):
+    """Normalize a supplier name for comparison: collapse all whitespace (incl. non-breaking spaces) and uppercase."""
+    if pd.isna(name):
+        return ""
+    return " ".join(str(name).replace('\xa0', ' ').split()).upper()
 
 
 
@@ -173,24 +204,76 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
                 print(msg)
             return
         
-        # Create a grouping key combining SAP and Fornecedor
-        grouped = df_Planejado.groupby(['SAP', 'Fornecedor'])
-        
-        total_groups = len(grouped)
+        # Group by SAP only: some SAP codes cover more than one Fornecedor label
+        # (e.g. BENTELER Funilaria / BENTELER Consignment Tiberina, both SAP 800028796)
+        # and those are always sent together in a single email.
+        sap_norm = df_Planejado['SAP'].apply(_normalize_sap)
+        # Some SAP codes are shared between a GEOSHIP-labeled row and an unrelated regular
+        # supplier row (e.g. plain "FLASH COVER CAP-Santa Fe Do Sul-SP" also uses SAP 800023315);
+        # only rows whose Fornecedor actually contains "GEOSHIP" are pulled into the special group.
+        is_geoship = df_Planejado['Fornecedor'].astype(str).str.contains('GEOSHIP', case=False, na=False)
+
+        groups_to_process = []
+        handled_mask = pd.Series(False, index=df_Planejado.index)
+
+        # GEOSHIP: combine each pair of SAP codes into a single group/email (see GEOSHIP_GROUPS above)
+        for geo in GEOSHIP_GROUPS:
+            mask = is_geoship & sap_norm.isin(geo['saps'])
+            if not mask.any():
+                continue
+            combined_data = df_Planejado[mask]
+            combined_sap_norm = sap_norm[mask]
+            handled_mask |= mask
+
+            # Display name: real Fornecedor labels with the "GEOSHIP" prefix stripped,
+            # ordered by SAP code (e.g. "FLASH COVER CAP-.../CAMARGO FILHO-...")
+            ordered_saps = sorted(combined_sap_norm.unique(), key=lambda s: int(s))
+            display_names = []
+            for s in ordered_saps:
+                for name in combined_data.loc[combined_sap_norm == s, 'Fornecedor'].dropna().unique().tolist():
+                    clean = re.sub(r'(?i)^\s*GEOSHIP\s+', '', str(name).replace('\xa0', ' '))
+                    clean = " ".join(clean.split())
+                    if clean and clean not in display_names:
+                        display_names.append(clean)
+
+            groups_to_process.append({
+                'group_data': combined_data,
+                'lookup_names': [geo['lookup_name']],
+                'display_name': " / ".join(display_names),
+                'display_sap': " / ".join(ordered_saps),
+            })
+
+        # Everything else: one group per SAP code, combining Fornecedor labels that share it
+        remaining = df_Planejado[~handled_mask]
+        for _, group_data in remaining.groupby('SAP'):
+            fornecedor_names = sorted(group_data['Fornecedor'].dropna().unique().tolist())
+            groups_to_process.append({
+                'group_data': group_data,
+                'lookup_names': fornecedor_names,
+                'display_name': " / ".join(fornecedor_names),
+                'display_sap': group_data['SAP'].iloc[0],
+            })
+
+        total_groups = len(groups_to_process)
         if q:
             msg = f"✅ Total de {total_groups} grupos (fornecedores) encontrados"
             q.put(("status", msg))
             print(msg)
             q.put(("progress", 55))
-        
+
         # List to store all email structures
         email_list = []
-        
+
         # Variable to store Stellantis emails (fetched once, used for all emails)
         stellantis_emails_str = ""
-        
+
         # Step 2-6: Process each group
-        for idx, ((sap_code, fornecedor_name), group_data) in enumerate(grouped, 1):
+        for idx, grp in enumerate(groups_to_process, 1):
+            group_data = grp['group_data']
+            fornecedor_names = grp['lookup_names']
+            fornecedor_name = grp['display_name']
+            sap_code = grp['display_sap']
+
             if q:
                 msg = f"🔍 Processando {idx}/{total_groups}: {fornecedor_name} (SAP: {sap_code})"
                 q.put(("status", msg))
@@ -206,31 +289,34 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
                 'planning_data': group_data
             }
             
-            # Step 2: Map Transportadora from df_geral
-            transportadora_name = None
+            # Step 2: Map Transportadora(s) from df_geral for every Fornecedor label sharing this SAP
+            transportadora_names = []
             try:
                 # Match Fornecedor in df_geral column C and get TRANSP from column B
                 # Assuming column names: 'Fornecedor' (C) and 'TRANSP' (B)
-                mask = df_geral['Fornecedor'].str.strip().str.upper() == fornecedor_name.strip().upper()
-                if mask.any():
-                    transportadora_name = df_geral.loc[mask, 'TRANSP'].iloc[0]
-                    if q:
-                        msg = f"   ✓ Transportadora mapeada: {transportadora_name}"
-                        q.put(("status", msg))
-                        print(msg)
-                else:
-                    if q:
-                        msg = f"   ⚠️ Fornecedor '{fornecedor_name}' não encontrado na planilha GERAL"
-                        q.put(("status", msg))
-                        print(msg)
+                for name in fornecedor_names:
+                    mask = df_geral['Fornecedor'].apply(_normalize_name) == _normalize_name(name)
+                    if mask.any():
+                        transp = df_geral.loc[mask, 'TRANSP'].iloc[0]
+                        if transp not in transportadora_names:
+                            transportadora_names.append(transp)
+                    else:
+                        if q:
+                            msg = f"   ⚠️ Fornecedor '{name}' não encontrado na planilha GERAL"
+                            q.put(("status", msg))
+                            print(msg)
+                if transportadora_names and q:
+                    msg = f"   ✓ Transportadora(s) mapeada(s): {', '.join(str(t) for t in transportadora_names)}"
+                    q.put(("status", msg))
+                    print(msg)
             except Exception as e:
                 if q:
                     msg = f"   ⚠️ Erro ao mapear transportadora: {e}"
                     q.put(("status", msg))
                     print(msg)
-            
+
             # Step 3: Get Transportadora emails (TO)
-            if transportadora_name:
+            for transportadora_name in transportadora_names:
                 try:
                     mask = df_transportadoras['TRANSPORTADORAS'].str.strip().str.upper() == transportadora_name.strip().upper()
                     if mask.any():
@@ -249,7 +335,7 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
                                 if email not in seen and '@' in email:  # Ensure it's a valid email
                                     seen.add(email)
                                     transp_emails_unique.append(email)
-                            
+
                             email_info['to_emails'].extend(transp_emails_unique)
                             if q:
                                 msg = f"   ✓ {len(transp_emails_unique)} email(s) da transportadora adicionados"
@@ -270,47 +356,48 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
                         msg = f"   ⚠️ Erro ao buscar emails da transportadora: {e}"
                         q.put(("status", msg))
                         print(msg)
-            
-            # Step 4: Get Fornecedor emails (TO)
-            try:
-                mask = df_fornecedores['Fornecedor'].str.strip().str.upper() == fornecedor_name.strip().upper()
-                if mask.any():
-                    fornec_emails_str = df_fornecedores.loc[mask, 'EMAILS'].iloc[0]
-                    if pd.notna(fornec_emails_str):
-                        # Split by both semicolon and newline, then clean up
-                        fornec_str = str(fornec_emails_str)
-                        # Replace newlines with semicolons first
-                        fornec_str = fornec_str.replace('\n', ';').replace('\r', ';')
-                        # Split by semicolon and clean up whitespace and empty strings
-                        fornec_emails = [email.strip() for email in fornec_str.split(';') if email.strip()]
-                        # Remove duplicates and validate emails
-                        seen = set()
-                        fornec_emails_unique = []
-                        for email in fornec_emails:
-                            if email not in seen and '@' in email:  # Ensure it's a valid email
-                                seen.add(email)
-                                fornec_emails_unique.append(email)
-                        
-                        email_info['to_emails'].extend(fornec_emails_unique)
-                        if q:
-                            msg = f"   ✓ {len(fornec_emails_unique)} email(s) do fornecedor adicionados"
-                            q.put(("status", msg))
-                            print(msg)
+
+            # Step 4: Get Fornecedor emails (TO) for every Fornecedor label sharing this SAP
+            for name in fornecedor_names:
+                try:
+                    mask = df_fornecedores['Fornecedor'].apply(_normalize_name) == _normalize_name(name)
+                    if mask.any():
+                        fornec_emails_str = df_fornecedores.loc[mask, 'EMAILS'].iloc[0]
+                        if pd.notna(fornec_emails_str):
+                            # Split by both semicolon and newline, then clean up
+                            fornec_str = str(fornec_emails_str)
+                            # Replace newlines with semicolons first
+                            fornec_str = fornec_str.replace('\n', ';').replace('\r', ';')
+                            # Split by semicolon and clean up whitespace and empty strings
+                            fornec_emails = [email.strip() for email in fornec_str.split(';') if email.strip()]
+                            # Remove duplicates and validate emails
+                            seen = set()
+                            fornec_emails_unique = []
+                            for email in fornec_emails:
+                                if email not in seen and '@' in email:  # Ensure it's a valid email
+                                    seen.add(email)
+                                    fornec_emails_unique.append(email)
+
+                            email_info['to_emails'].extend(fornec_emails_unique)
+                            if q:
+                                msg = f"   ✓ {len(fornec_emails_unique)} email(s) do fornecedor adicionados ({name})"
+                                q.put(("status", msg))
+                                print(msg)
+                        else:
+                            if q:
+                                msg = f"   ⚠️ EMAILS vazio para fornecedor {name}"
+                                q.put(("status", msg))
+                                print(msg)
                     else:
                         if q:
-                            msg = f"   ⚠️ EMAILS vazio para fornecedor {fornecedor_name}"
+                            msg = f"   ⚠️ Fornecedor '{name}' não encontrado na planilha FORNECEDORES"
                             q.put(("status", msg))
                             print(msg)
-                else:
+                except Exception as e:
                     if q:
-                        msg = f"   ⚠️ Fornecedor '{fornecedor_name}' não encontrado na planilha FORNECEDORES"
+                        msg = f"   ⚠️ Erro ao buscar emails do fornecedor: {e}"
                         q.put(("status", msg))
                         print(msg)
-            except Exception as e:
-                if q:
-                    msg = f"   ⚠️ Erro ao buscar emails do fornecedor: {e}"
-                    q.put(("status", msg))
-                    print(msg)
             
             # Remove duplicates from TO emails
             email_info['to_emails'] = list(set(email_info['to_emails']))

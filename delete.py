@@ -9,6 +9,6 @@ time.sleep(10)  # Aguarda 10 segundos para o usuário posicionar o mouse
 
 x,y = 557, 426
 
-for _ in range(200):
+for _ in range(100):
     pag.click(x, y)
     time.sleep(0.6)

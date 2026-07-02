@@ -548,9 +548,6 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             ]
                             
                             
-                            page.pause()  # Pause here
-                            
-                            continue
                             
                             send_clicked = False
                             for selector in send_selectors:
