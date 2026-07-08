@@ -122,55 +122,26 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
         q.put(("status", msg))
         print(msg)
         
-        # Determine browser profile path based on Nav setting
+        # Determine browser name/channel based on Nav setting
         if navegador == "edge":
-            browser_user_data = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Microsoft", "Edge", "User Data")
             browser_name = "Edge"
             channel = "msedge"
         else:  # chrome
-            browser_user_data = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Google", "Chrome", "User Data")
             browser_name = "Chrome"
             channel = "chrome"
-        
-        # Check if browser default profile exists
-        use_default_profile = os.path.exists(browser_user_data)
-        
-        if use_default_profile:
-            msg = f"ℹ️ IMPORTANTE: Feche TODAS as janelas do {browser_name} antes de continuar!"
-            q.put(("status", msg))
-            print(msg)
-            msg = "⏳ Aguardando 10 segundos para você fechar o navegador..."
-            q.put(("status", msg))
-            print(msg)
-            import time
-            time.sleep(10)
-            
-            msg = f"🔄 Encerrando processos em segundo plano do {browser_name} para liberar o perfil..."
-            q.put(("status", msg))
-            print(msg)
-            
-            # Força o encerramento de processos em background que "prendem" o perfil
-            try:
-                if navegador == "edge":
-                    os.system("taskkill /F /IM msedge.exe /T >nul 2>&1")
-                else:
-                    os.system("taskkill /F /IM chrome.exe /T >nul 2>&1")
-            except Exception:
-                pass
-            time.sleep(3) # Dá um tempinho para o Windows liberar os arquivos
-            
-            user_data_dir = browser_user_data
-            msg = f"✅ Usando perfil do {browser_name} com suas credenciais salvas"
-            q.put(("status", msg))
-            print(msg)
-        else:
-            # Fallback to RPA-specific profile
-            user_data_dir = os.path.join(os.path.expanduser("~"), "AppData", "Local", "RPA_FIAPE_Browser_Data")
-            os.makedirs(user_data_dir, exist_ok=True)
-            msg = "ℹ️ Usando perfil RPA (você precisará fazer login na primeira vez)"
-            q.put(("status", msg))
-            print(msg)
-        
+
+        # Since Chrome/Edge 136+, the browser refuses CDP remote-debugging attachment
+        # (which launch_persistent_context always requires) on its real default profile
+        # directory - this is a security hardening against automation hijacking a user's
+        # logged-in session, and fails every time with "DevTools remote debugging requires
+        # a non-default data directory". So we always use a dedicated RPA profile instead;
+        # login is a one-time step per machine and persists across runs via that profile.
+        user_data_dir = os.path.join(os.path.expanduser("~"), "AppData", "Local", "RPA_FIAPE_Browser_Data")
+        os.makedirs(user_data_dir, exist_ok=True)
+        msg = f"ℹ️ Usando perfil dedicado do RPA para o {browser_name} (login persiste entre execuções)"
+        q.put(("status", msg))
+        print(msg)
+
         # Args to remove automation indicators and warnings
         browser_args = [
             "--start-maximized",
@@ -190,7 +161,9 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
         q.put(("status", msg))
         print(msg)
         
-        # Launch browser with persistent context (keeps login)
+        # Launch browser with persistent context (keeps login). If this fails, it's a real
+        # error (e.g. the RPA profile is locked by another running instance) - not worth
+        # retrying with the same profile/args, since that would just fail identically.
         try:
             context = playwright.chromium.launch_persistent_context(
                 user_data_dir,
@@ -207,20 +180,7 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
             error_msg = f"❌ Erro ao iniciar {browser_name}: {e}"
             q.put(("status", error_msg))
             print(error_msg)
-            warning_msg = "⚠️ Tentando com perfil RPA..."
-            q.put(("status", warning_msg))
-            print(warning_msg)
-            # Retry with RPA profile
-            user_data_dir = os.path.join(os.path.expanduser("~"), "AppData", "Local", "RPA_FIAPE_Browser_Data")
-            os.makedirs(user_data_dir, exist_ok=True)
-            context = playwright.chromium.launch_persistent_context(
-                user_data_dir,
-                headless=False,
-                channel=channel,
-                args=browser_args,
-                no_viewport=True,
-                ignore_default_args=["--enable-automation", "--no-sandbox"]
-            )
+            raise
         
         # Para garantir que o bot interaja com uma aba visível na tela:
         if len(context.pages) > 0:
@@ -540,8 +500,13 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             q.put(("status", msg))
                             
                             
+                            
+                            # Para testes
                             page.wait_for_timeout(2000)
                             continue
+                            
+                            
+                            
                             
                             send_selectors = [
                                 "button[aria-label*='Enviar']",
