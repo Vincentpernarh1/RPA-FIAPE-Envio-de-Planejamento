@@ -291,8 +291,10 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             msg = f"📧 TESTE: Criando email para {test_email['supplier_name']} (usando emails de teste)"
                         else:
                             msg = f"📧 PRODUÇÃO: Criando email para {test_email['supplier_name']}"
-                        q.put(("status", msg))
-                        print(msg)
+                            q.put(("status", msg))
+                            msg = f"Processando: {email_index}/{len(email_list)}"
+                            q.put(("status", msg))
+                        # print(msg)
                         
                         if not test_mode:
                             # Only print real email counts in production mode
@@ -366,10 +368,10 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                                 
                                 # Type each email and press Enter to create chip
                                 for idx, email in enumerate(to_emails_list):
-                                    page.keyboard.type(email, delay=0.2)
-                                    page.wait_for_timeout(200)
+                                    page.keyboard.type(email, delay=1)
+                                    page.wait_for_timeout(500)
                                     page.keyboard.press("Enter")
-                                    page.wait_for_timeout(300)
+                                    page.wait_for_timeout(400)
                                     # msg = f"   → Email {idx+1}/{len(to_emails_list)} adicionado: {email}"
                                     # q.put(("status", msg))
                                     # print(msg)
@@ -536,7 +538,7 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             page.wait_for_timeout(2000)  # Wait 2 seconds before sending
                             msg = "📤 Tentando clicar no botão ENVIAR..."
                             q.put(("status", msg))
-                            print(msg)
+                            
                             
                             send_selectors = [
                                 "button[aria-label*='Enviar']",
