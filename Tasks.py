@@ -44,6 +44,18 @@ GEOSHIP_GROUPS = [
     },
 ]
 
+# These pairs are also always sent together (historical practice), but unlike GEOSHIP,
+# one side of each pair DOES have its own real Fornecedor label in GERAL/FORNECEDORES -
+# it's only the other side that has no row there. So no explicit lookup_name is needed:
+# the per-name lookup loop in treat_data() already tolerates a missing name (logs a
+# warning and skips it), so the merged email naturally inherits whichever sibling's
+# transportadora/supplier emails it can find.
+MULTI_SAP_GROUPS = [
+    {'800000507', '800005740'},   # HBA II - Monte Alto-SP (R Palmas) / Monte Alto - HBA 1
+    {'800016833', '800034387'},   # IOCHPE MAXION I x PIRELLI (Aço) / II (Alumínio)
+    {'800001396', '800047201'},   # ZF AUTOMOTIVE B-Limeira-SP / ZF LIFETEC
+]
+
 
 def _normalize_sap(sap):
     """Normalize a SAP code to a plain digit string regardless of source dtype (int/float/str)."""
@@ -240,6 +252,26 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
                 'group_data': combined_data,
                 'lookup_names': [geo['lookup_name']],
                 'display_name': " / ".join(display_names),
+                'display_sap': " / ".join(ordered_saps),
+            })
+
+        # MULTI_SAP_GROUPS: combine specific non-GEOSHIP SAP codes into a single email
+        # (e.g. HBA II / Monte Alto - HBA 1, Iochpe Maxion Aço / Alumínio, ZF Automotive /
+        # ZF Lifetec). See MULTI_SAP_GROUPS above for why no lookup_name is needed here.
+        for saps in MULTI_SAP_GROUPS:
+            mask = ~is_geoship & sap_norm.isin(saps) & ~handled_mask
+            if not mask.any():
+                continue
+            combined_data = df_Planejado[mask]
+            handled_mask |= mask
+
+            fornecedor_names = sorted(combined_data['Fornecedor'].dropna().unique().tolist())
+            ordered_saps = sorted(sap_norm[mask].unique(), key=lambda s: int(s))
+
+            groups_to_process.append({
+                'group_data': combined_data,
+                'lookup_names': fornecedor_names,
+                'display_name': " / ".join(fornecedor_names),
                 'display_sap': " / ".join(ordered_saps),
             })
 

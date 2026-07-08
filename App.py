@@ -540,6 +540,9 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             q.put(("status", msg))
                             
                             
+                            page.wait_for_timeout(2000)
+                            continue
+                            
                             send_selectors = [
                                 "button[aria-label*='Enviar']",
                                 "button[aria-label*='Send']",
