@@ -29,18 +29,24 @@ df_stellantis = pd.DataFrame()
 df_fornecedores = pd.DataFrame()
 df_Planejado = pd.DataFrame()
 
+# GEOSHIP_GROUPS and MULTI_SAP_GROUPS are loaded at runtime from
+# Base/Planejamento/Grupos_SAP.json (see load_sap_groups() below) so business users can
+# add/remove SAP groupings without touching code. The lists below are only a fallback used
+# if that JSON file is missing or malformed.
+#
 # GEOSHIP operates two SAP codes per pickup location, but they're really a single carrier/
 # recipient and must be sent as one email. The "GEOSHIP ..." Fornecedor labels used in the
 # planning sheet don't exist in the GERAL/FORNECEDORES sheets, so a designated real supplier
 # is used to look up the transportadora and the recipient emails for each pair.
-GEOSHIP_GROUPS = [
-    {
-        'saps': {'800023315', '800040308'},
-        'lookup_name': 'FLASH COVER CAP-Santa Fe Do Sul-SP',
-    },
+_DEFAULT_GEOSHIP_GROUPS = [
     {
         'saps': {'800000507', '800005740'},
         'lookup_name': 'HBA II - Monte Alto-SP (R Palmas)',
+    },
+    {
+        'saps': {'800023315', '800040308'},
+        'lookup_name': 'FLASH COVER CAP-Santa Fe Do Sul-SP',
+        'include_non_geoship': True,
     },
 ]
 
@@ -50,11 +56,58 @@ GEOSHIP_GROUPS = [
 # the per-name lookup loop in treat_data() already tolerates a missing name (logs a
 # warning and skips it), so the merged email naturally inherits whichever sibling's
 # transportadora/supplier emails it can find.
-MULTI_SAP_GROUPS = [
+_DEFAULT_MULTI_SAP_GROUPS = [
     {'800000507', '800005740'},   # HBA II - Monte Alto-SP (R Palmas) / Monte Alto - HBA 1
     {'800016833', '800034387'},   # IOCHPE MAXION I x PIRELLI (Aço) / II (Alumínio)
     {'800001396', '800047201'},   # ZF AUTOMOTIVE B-Limeira-SP / ZF LIFETEC
+    {'800033131', '800034382'},   # AUTOMETAL-Cabo De Santo Agostinho-PE / Sulbras
 ]
+
+SAP_GROUPS_FILENAME = "Grupos_SAP.json"
+
+
+def load_sap_groups(q=None):
+    """Load GEOSHIP/MULTI_SAP grouping rules from Base/Planejamento/Grupos_SAP.json so users
+    can update which SAP codes get merged into one email by editing that file, instead of
+    having to change this code. Falls back to the built-in defaults if the file is missing
+    or malformed.
+    """
+    groups_path = os.path.join(caminho_base, "Base", "Planejamento", SAP_GROUPS_FILENAME)
+    try:
+        with open(groups_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        geoship_groups = [
+            {
+                'saps': {_normalize_sap(s) for s in g['saps']},
+                'lookup_name': g['lookup_name'],
+                'include_non_geoship': bool(g.get('include_non_geoship', False)),
+            }
+            for g in data.get('geoship_groups', [])
+        ]
+        multi_sap_groups = [
+            {_normalize_sap(s) for s in g['saps']}
+            for g in data.get('multi_sap_groups', [])
+        ]
+
+        if q:
+            msg = f"✅ Regras de agrupamento carregadas de {SAP_GROUPS_FILENAME} ({len(geoship_groups)} GEOSHIP, {len(multi_sap_groups)} multi-SAP)"
+            q.put(("status", msg))
+            print(msg)
+
+        return geoship_groups, multi_sap_groups
+    except FileNotFoundError:
+        msg = f"⚠️ {SAP_GROUPS_FILENAME} não encontrado em Base/Planejamento - usando regras padrão embutidas"
+        if q:
+            q.put(("status", msg))
+        print(msg)
+        return _DEFAULT_GEOSHIP_GROUPS, _DEFAULT_MULTI_SAP_GROUPS
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        msg = f"⚠️ Erro ao ler {SAP_GROUPS_FILENAME} ({e}) - usando regras padrão embutidas"
+        if q:
+            q.put(("status", msg))
+        print(msg)
+        return _DEFAULT_GEOSHIP_GROUPS, _DEFAULT_MULTI_SAP_GROUPS
 
 
 def _normalize_sap(sap):
@@ -228,9 +281,19 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
         groups_to_process = []
         handled_mask = pd.Series(False, index=df_Planejado.index)
 
-        # GEOSHIP: combine each pair of SAP codes into a single group/email (see GEOSHIP_GROUPS above)
-        for geo in GEOSHIP_GROUPS:
-            mask = is_geoship & sap_norm.isin(geo['saps'])
+        geoship_groups, multi_sap_groups = load_sap_groups(q)
+
+        # GEOSHIP: combine each pair of SAP codes into a single group/email (see Grupos_SAP.json).
+        # By default only rows whose Fornecedor contains "GEOSHIP" are pulled in - a plain
+        # (non-GEOSHIP) row sharing the same SAP is normally an unrelated supplier that
+        # happens to reuse the code. A group can set "include_non_geoship": true in the
+        # JSON to override this when the plain row is actually part of the same shipment
+        # and must be merged into the same email too.
+        for geo in geoship_groups:
+            if geo.get('include_non_geoship'):
+                mask = sap_norm.isin(geo['saps'])
+            else:
+                mask = is_geoship & sap_norm.isin(geo['saps'])
             if not mask.any():
                 continue
             combined_data = df_Planejado[mask]
@@ -255,10 +318,10 @@ def treat_data(df_geral, df_transportadoras, df_stellantis, df_fornecedores, df_
                 'display_sap': " / ".join(ordered_saps),
             })
 
-        # MULTI_SAP_GROUPS: combine specific non-GEOSHIP SAP codes into a single email
+        # multi_sap_groups: combine specific non-GEOSHIP SAP codes into a single email
         # (e.g. HBA II / Monte Alto - HBA 1, Iochpe Maxion Aço / Alumínio, ZF Automotive /
-        # ZF Lifetec). See MULTI_SAP_GROUPS above for why no lookup_name is needed here.
-        for saps in MULTI_SAP_GROUPS:
+        # ZF Lifetec). See Grupos_SAP.json for why no lookup_name is needed here.
+        for saps in multi_sap_groups:
             mask = ~is_geoship & sap_norm.isin(saps) & ~handled_mask
             if not mask.any():
                 continue

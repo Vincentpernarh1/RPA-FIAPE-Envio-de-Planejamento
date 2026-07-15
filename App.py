@@ -78,6 +78,22 @@ def update_gui(queue_instance, status_label, progress_bar, log_text, process_but
  
 
 
+def paste_emails_into_field(page, field, emails_str):
+    """Fill a To/Cc field by pasting a semicolon-separated email list via the clipboard,
+    instead of simulating keystrokes one character at a time. Outlook Web already splits
+    a pasted list into chips on its own, and a single paste event is far faster than
+    dispatching hundreds of keydown/keyup events (which also forces a UI re-render per
+    character, that's why keyboard.type() still visibly "types" even in one call)."""
+    field.click(timeout=3000)
+    page.wait_for_timeout(300)
+    page.evaluate("text => navigator.clipboard.writeText(text)", emails_str)
+    page.keyboard.press("Control+V")
+    page.wait_for_timeout(800)
+    # Safety net in case any trailing text wasn't auto-converted to a chip
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(500)
+
+
 def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = False):
     try:
         # EXPLICIT DEBUG at thread start
@@ -222,7 +238,15 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
             msg = "⚠️ Outlook pode não estar totalmente carregado"
             q.put(("status", msg))
             print(msg)
-        
+
+        # Grant clipboard permission for the actual (possibly redirected) origin so we can
+        # paste email lists instead of simulating keystrokes one character at a time.
+        try:
+            page_origin = "/".join(page.url.split("/")[:3])
+            context.grant_permissions(["clipboard-read", "clipboard-write"], origin=page_origin)
+        except Exception as e:
+            print(f"⚠️ Não foi possível conceder permissão de clipboard: {e}")
+
         q.put(("progress", 95))
         
         # Check if user is logged in
@@ -323,19 +347,9 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             try:
                                 # Find the Para div by aria-label
                                 to_field = page.locator('div[aria-label="Para"]').first
-                                to_field.click(timeout=3000)
-                                page.wait_for_timeout(500)
-                                
-                                # Type each email and press Enter to create chip
-                                for idx, email in enumerate(to_emails_list):
-                                    page.keyboard.type(email, delay=1)
-                                    page.wait_for_timeout(500)
-                                    page.keyboard.press("Enter")
-                                    page.wait_for_timeout(400)
-                                    # msg = f"   → Email {idx+1}/{len(to_emails_list)} adicionado: {email}"
-                                    # q.put(("status", msg))
-                                    # print(msg)
-                                
+                                to_emails_str = "; ".join(to_emails_list)
+                                paste_emails_into_field(page, to_field, to_emails_str)
+
                                 msg = f"✅ Campo TO preenchido com {len(to_emails_list)} emails"
                                 q.put(("status", msg))
                                 # print(msg)
@@ -384,17 +398,8 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                                 try:
                                     # Find CC div by aria-label
                                     cc_field = page.locator('div[aria-label="Cc"]').first
-                                    cc_field.click(timeout=2000)
-                                    page.wait_for_timeout(500)
-                                    
-                                    # Paste the entire semicolon-separated string at once
-                                    page.keyboard.type(cc_emails_str, delay=1)
-                                    page.wait_for_timeout(500)
-                                    
-                                    # Press Enter once to create all email chips
-                                    page.keyboard.press("Enter")
-                                    page.wait_for_timeout(1000)
-                                    
+                                    paste_emails_into_field(page, cc_field, cc_emails_str)
+
                                     msg = f"✅ Campo CC preenchido com {cc_count} emails Stellantis"
                                     q.put(("status", msg))
                                     print(msg)
@@ -501,12 +506,8 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             
                             
                             
-                            # Para testes
-                            page.wait_for_timeout(2000)
-                            continue
-                            
-                            
-                            
+                            # page.wait_for_timeout(20000)
+                            # continue
                             
                             send_selectors = [
                                 "button[aria-label*='Enviar']",
