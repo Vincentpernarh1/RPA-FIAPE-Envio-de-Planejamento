@@ -94,6 +94,45 @@ def paste_emails_into_field(page, field, emails_str):
     page.wait_for_timeout(500)
 
 
+def paste_html_into_body(page, field, html_content):
+    """Fill the message body by writing real HTML to the clipboard and pasting it in,
+    instead of writing innerHTML directly via JS. New Outlook keeps its own internal
+    editor model of the compose content; a direct innerHTML write updates the visible
+    DOM but never registers with that model, so styling can silently vanish by the time
+    the message is actually sent even though it's visible in the DOM right after the
+    write. A real clipboard paste goes through the same path Outlook uses when a person
+    pastes a colored Excel table, which both Classic and New Outlook are built to
+    preserve correctly.
+
+    Outlook can auto-insert the user's default signature into a fresh compose box,
+    sometimes asynchronously - clearing and pasting a second time to catch a late
+    signature was tried, but Ctrl+A/Backspace doesn't reliably re-select a table that
+    was just pasted, so the second pass left old and new content merged together and
+    flattened the formatting. A single clear-and-paste is more reliable; the caller
+    waits before calling this so the signature has already settled by the time we
+    clear it once. Clearing is done purely via Ctrl+A/Backspace (not a raw innerHTML
+    wipe) - a direct DOM write resets the editor's internal formatting context, which
+    was observed to make the paste fall back to default black text instead of the
+    explicit white set on the header."""
+    field.click(timeout=3000)
+    page.wait_for_timeout(300)
+    page.keyboard.press("Control+A")
+    page.keyboard.press("Backspace")
+    page.wait_for_timeout(300)
+    page.evaluate(
+        """async (html) => {
+            const item = new ClipboardItem({
+                'text/html': new Blob([html], { type: 'text/html' }),
+                'text/plain': new Blob([html], { type: 'text/plain' })
+            });
+            await navigator.clipboard.write([item]);
+        }""",
+        html_content
+    )
+    page.keyboard.press("Control+V")
+    page.wait_for_timeout(800)
+
+
 def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = False):
     try:
         # EXPLICIT DEBUG at thread start
@@ -459,22 +498,8 @@ def run_automation(playwright: Playwright, q: queue.Queue, test_mode: bool = Fal
                             for selector in body_selectors:
                                 try:
                                     body_element = page.locator(selector).first
-                                    # Click to focus
-                                    body_element.click(timeout=2000)
-                                    page.wait_for_timeout(500)
-                                    
-                                    # Clear any existing content
-                                    page.keyboard.press("Control+A")
-                                    page.keyboard.press("Backspace")
-                                    
-                                    # Insert HTML content using JavaScript
-                                    escaped_html = test_email['content_html'].replace('`', '\\`').replace('$', '\\$')
-                                    body_element.evaluate(f"""
-                                        (element) => {{
-                                            element.innerHTML = `{escaped_html}`;
-                                        }}
-                                    """)
-                                    
+                                    paste_html_into_body(page, body_element, test_email['content_html'])
+
                                     msg = "✅ Corpo do email preenchido com tabela formatada"
                                     q.put(("status", msg))
                                     print(msg)
@@ -616,7 +641,7 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Ferramenta de Automação e Processamento RPA")
-        self.root.geometry("700x550")
+        self.root.geometry("700x580")
         self.root.resizable(True, True)
         
         # DHL & STELLANTIS Colors

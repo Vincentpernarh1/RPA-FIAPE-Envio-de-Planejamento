@@ -96,7 +96,7 @@ Este projeto já foi adaptado (usando `sys._MEIPASS` e `sys.frozen`) para ser co
 Para gerar o executável sem abrir o terminal em background e incluindo o Playwright corretamente, recomenda-se um comando similar a este:
 
 ```bash
-pyinstaller --noconsole  --name="RPA - FIAPE Envio de Panejamento" --icon="icon.ico"   --hidden-import playwright --hidden-import playwright.sync_api --hidden-import dotenv App.py
+ pyinstaller --noconsole --onefile   --name="RPA - FIAPE Envio de Panejamento" --icon="icon.ico"   --hidden-import playwright --hidden-import playwright.sync_api --hidden-import dotenv App.py
 
 
 ```
