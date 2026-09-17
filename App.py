@@ -105,20 +105,17 @@ def paste_html_into_body(page, field, html_content):
     preserve correctly.
 
     Outlook can auto-insert the user's default signature into a fresh compose box,
-    sometimes asynchronously - clearing and pasting a second time to catch a late
-    signature was tried, but Ctrl+A/Backspace doesn't reliably re-select a table that
-    was just pasted, so the second pass left old and new content merged together and
-    flattened the formatting. A single clear-and-paste is more reliable; the caller
-    waits before calling this so the signature has already settled by the time we
-    clear it once. Clearing is done purely via Ctrl+A/Backspace (not a raw innerHTML
-    wipe) - a direct DOM write resets the editor's internal formatting context, which
-    was observed to make the paste fall back to default black text instead of the
-    explicit white set on the header."""
+    sometimes asynchronously. Trying to clear the box first (Ctrl+A/Backspace, with or
+    without a wait for the signature to settle, with or without a second pass) kept
+    racing that auto-insert one way or another - either the signature ended up mixed
+    into the pasted content, or the clear step itself corrupted formatting. Instead of
+    clearing at all, jump to the very start of the body (Ctrl+Home) and paste there:
+    this lands our content first regardless of whether the signature has loaded yet,
+    pushing it down instead of colliding with it, and never touches/selects it at all."""
     field.click(timeout=3000)
     page.wait_for_timeout(300)
-    page.keyboard.press("Control+A")
-    page.keyboard.press("Backspace")
-    page.wait_for_timeout(300)
+    page.keyboard.press("Control+Home")
+    page.wait_for_timeout(200)
     page.evaluate(
         """async (html) => {
             const item = new ClipboardItem({

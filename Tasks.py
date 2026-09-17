@@ -588,17 +588,23 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
     """
     Convert planning data to HTML table format for email content with inline styles for Outlook compatibility.
     """
-    # Build HTML with inline styles (required for Outlook Web)
-    html = f"""<div style="font-family: 'Segoe UI', Arial, sans-serif !important; color: #333 !important; padding: 10px !important;">
-    <h2 style="color: #003DA5 !important; font-size: 18px !important; font-weight: bold !important; margin-bottom: 15px !important;">Segue plano de coletas previsto para semana {weeknumber}</h2>
-    <p style="margin: 8px 0 !important;"><strong style="font-weight: bold !important;">Fornecedor:</strong> {fornecedor_name}</p>
-    <p style="margin: 8px 0 !important;"><strong style="font-weight: bold !important;">SAP:</strong> {sap_code}</p>
-    <p style="margin: 15px 0 !important; padding: 10px !important; background-color: #fff3cd !important; border-left: 4px solid #ffc107 !important;"><strong style="font-weight: bold !important;">Obs:</strong> o plano abaixo é apenas uma prévia, podendo ser alterado de acordo com a necessidade Stellantis.</p>
+    # Header info (title/Fornecedor/SAP/Obs) is built as single-column table rows rather
+    # than div/h2/p elements - table cell styling survives Outlook's paste-cleaning
+    # sanitizer reliably (that's how the data table below keeps its colors), while plain
+    # paragraph/heading text color does not, no matter how it's written (hex, !important,
+    # explicit per-element all still get stripped for non-table text).
+    html = f"""<table style="border-collapse: collapse !important; width: auto !important; max-width: 650px !important; font-family: 'Segoe UI', Arial, sans-serif !important;">
+    <tr><td style="padding: 4px 0 !important; font-size: 18px !important; font-weight: bold !important; color: #003DA5 !important;">Segue plano de coletas previsto para semana {weeknumber}</td></tr>
+    <tr><td style="padding: 4px 0 !important; font-size: 13px !important;"><span style="font-weight: bold !important; color: #003DA5 !important;">Fornecedor:</span> <span style="color: #333333 !important;">{fornecedor_name}</span></td></tr>
+    <tr><td style="padding: 4px 0 !important; font-size: 13px !important;"><span style="font-weight: bold !important; color: #003DA5 !important;">SAP:</span> <span style="color: #333333 !important;">{sap_code}</span></td></tr>
+    <tr><td style="padding: 10px !important; background-color: #fff3cd !important; border-left: 4px solid #ffc107 !important; font-size: 13px !important;"><span style="font-weight: bold !important; color: #664d03 !important;">Obs:</span> <span style="color: #664d03 !important;">o plano abaixo é apenas uma prévia, podendo ser alterado de acordo com a necessidade Stellantis.</span></td></tr>
+    <tr><td style="padding-top: 10px !important;">&nbsp;</td></tr>
+    </table>
 
-    <table style="border-collapse: collapse !important; width: auto !important; max-width: 560px !important; font-size: 11px !important; margin: 12px 0 !important; border: 1px solid #ddd !important;">
+    <table style="border-collapse: collapse !important; width: auto !important; max-width: 650px !important; font-size: 11px !important; margin: 12px 0 !important; border: 1px solid #ddd !important;">
         <thead>
             <tr style="background-color: #003DA5 !important;">
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Fornecedor</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important; min-width: 120px !important;">Fornecedor</th>
                 <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Veículos</th>
                 <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Destino</th>
                 <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Semana</th>
@@ -613,7 +619,7 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
     for idx, (_, row) in enumerate(group_data.iterrows()):
         bg_color = "#f9f9f9" if idx % 2 == 0 else "#ffffff"
         html += f'<tr style="background-color: {bg_color} !important;">'
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important;">{row["Fornecedor"]}</td>'
+        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important; min-width: 120px !important;">{row["Fornecedor"]}</td>'
         html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important;">{row["Veículos"]}</td>'
         html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important;">{row["Destino"]}</td>'
         html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; text-align: center !important; font-size: 11px !important;">{row["Semana"]}</td>'
@@ -646,10 +652,9 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
         </tbody>
     </table>
     
-    <div style="margin-top: 20px !important; padding-top: 15px !important; border-top: 1px solid #ddd !important; font-size: 12px !important; color: #666 !important;">
-        <p style="margin: 5px 0 !important; color: #666 !important;">Este é um email automatizado. Para dúvidas, entre em contato com a equipe de planejamento.</p>
-    </div>
-</div>"""
+    <table style="border-collapse: collapse !important; width: auto !important; max-width: 650px !important; margin-top: 12px !important;">
+    <tr><td style="padding-top: 10px !important; border-top: 1px solid #dddddd !important; font-size: 12px !important; color: #666666 !important;">Este é um email automatizado. Para dúvidas, entre em contato com a equipe de planejamento.</td></tr>
+    </table>"""
     
     return html
 
