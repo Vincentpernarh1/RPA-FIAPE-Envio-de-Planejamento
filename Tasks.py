@@ -588,29 +588,41 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
     """
     Convert planning data to HTML table format for email content with inline styles for Outlook compatibility.
     """
-    # Header info (title/Fornecedor/SAP/Obs) is built as single-column table rows rather
-    # than div/h2/p elements - table cell styling survives Outlook's paste-cleaning
-    # sanitizer reliably (that's how the data table below keeps its colors), while plain
-    # paragraph/heading text color does not, no matter how it's written (hex, !important,
-    # explicit per-element all still get stripped for non-table text).
+    # Header info (title/Fornecedor/SAP/Obs) is built with <th> cells, not <td> or
+    # div/h2/p - color survives Outlook's paste-cleaning sanitizer on <th> (that's how
+    # the data table's header row text stayed white after the earlier hex fix) but was
+    # stripped everywhere else we tried it, <td> included, even with hex/!important. To
+    # stay on the proven-working pattern, color is also never nested in a <span> inside
+    # a cell - only set directly on the <th> itself (nested elements are only used for
+    # font-weight, which nesting doesn't strip, not for color).
     html = f"""<table style="border-collapse: collapse !important; width: auto !important; max-width: 650px !important; font-family: 'Segoe UI', Arial, sans-serif !important;">
-    <tr><td style="padding: 4px 0 !important; font-size: 18px !important; font-weight: bold !important; color: #003DA5 !important;">Segue plano de coletas previsto para semana {weeknumber}</td></tr>
-    <tr><td style="padding: 4px 0 !important; font-size: 13px !important;"><span style="font-weight: bold !important; color: #003DA5 !important;">Fornecedor:</span> <span style="color: #333333 !important;">{fornecedor_name}</span></td></tr>
-    <tr><td style="padding: 4px 0 !important; font-size: 13px !important;"><span style="font-weight: bold !important; color: #003DA5 !important;">SAP:</span> <span style="color: #333333 !important;">{sap_code}</span></td></tr>
-    <tr><td style="padding: 10px !important; background-color: #fff3cd !important; border-left: 4px solid #ffc107 !important; font-size: 13px !important;"><span style="font-weight: bold !important; color: #664d03 !important;">Obs:</span> <span style="color: #664d03 !important;">o plano abaixo é apenas uma prévia, podendo ser alterado de acordo com a necessidade Stellantis.</span></td></tr>
-    <tr><td style="padding-top: 10px !important;">&nbsp;</td></tr>
+    <thead>
+    <tr><th colspan="2" style="text-align: left !important; padding: 4px 0 !important; font-size: 18px !important; font-weight: bold !important; color: #003DA5 !important;">Segue plano de coletas previsto para semana {weeknumber}</th></tr>
+    </thead>
+    <tbody>
+    <tr>
+        <th style="text-align: left !important; padding: 4px 6px 4px 0 !important; font-size: 13px !important; font-weight: bold !important; color: #003DA5 !important;">Fornecedor:</th>
+        <th style="text-align: left !important; padding: 4px 0 !important; font-size: 13px !important; font-weight: normal !important; color: #333333 !important;">{fornecedor_name}</th>
+    </tr>
+    <tr>
+        <th style="text-align: left !important; padding: 4px 6px 4px 0 !important; font-size: 13px !important; font-weight: bold !important; color: #003DA5 !important;">SAP:</th>
+        <th style="text-align: left !important; padding: 4px 0 !important; font-size: 13px !important; font-weight: normal !important; color: #333333 !important;">{sap_code}</th>
+    </tr>
+    <tr><th colspan="2" style="text-align: left !important; padding: 10px !important; background-color: #fff3cd !important; border-left: 4px solid #ffc107 !important; font-size: 13px !important; font-weight: normal !important; color: #664d03 !important;"><strong style="font-weight: bold !important;">Obs:</strong> o plano abaixo é apenas uma prévia, podendo ser alterado de acordo com a necessidade Stellantis.</th></tr>
+    <tr><th colspan="2" style="padding-top: 10px !important;">&nbsp;</th></tr>
+    </tbody>
     </table>
 
-    <table style="border-collapse: collapse !important; width: auto !important; max-width: 650px !important; font-size: 11px !important; margin: 12px 0 !important; border: 1px solid #ddd !important;">
+    <table style="border-collapse: collapse !important; width: auto !important; max-width: 750px !important; font-size: 10px !important; margin: 12px 0 !important; border: 1px solid #ddd !important;">
         <thead>
             <tr style="background-color: #003DA5 !important;">
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important; min-width: 120px !important;">Fornecedor</th>
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Veículos</th>
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Destino</th>
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Semana</th>
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Dia</th>
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Data Planejada de Coleta</th>
-                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 4px 5px !important; text-align: left !important; font-weight: bold !important; font-size: 11px !important; border: 1px solid #003DA5 !important;">Hora Planejada de Coleta</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 3px 4px !important; text-align: left !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid #003DA5 !important; min-width: 150px !important;">Fornecedor</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 3px 4px !important; text-align: left !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid #003DA5 !important; min-width: 100px !important;">Veículos</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 3px 4px !important; text-align: left !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid #003DA5 !important;">Destino</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 3px 4px !important; text-align: left !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid #003DA5 !important;">Semana</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 3px 4px !important; text-align: left !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid #003DA5 !important; min-width: 90px !important;">Dia</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 3px 4px !important; text-align: left !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid #003DA5 !important;">Data Planejada de Coleta</th>
+                <th style="background-color: #003DA5 !important; color: #ffffff !important; padding: 3px 4px !important; text-align: left !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid #003DA5 !important;">Hora Planejada de Coleta</th>
             </tr>
         </thead>
         <tbody>"""
@@ -619,11 +631,11 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
     for idx, (_, row) in enumerate(group_data.iterrows()):
         bg_color = "#f9f9f9" if idx % 2 == 0 else "#ffffff"
         html += f'<tr style="background-color: {bg_color} !important;">'
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important; min-width: 120px !important;">{row["Fornecedor"]}</td>'
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important;">{row["Veículos"]}</td>'
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important;">{row["Destino"]}</td>'
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; text-align: center !important; font-size: 11px !important;">{row["Semana"]}</td>'
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 11px !important;">{row["Dia"]}</td>'
+        html += f'<td style="padding: 3px 4px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 10px !important; min-width: 150px !important;">{row["Fornecedor"]}</td>'
+        html += f'<td style="padding: 3px 4px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 10px !important; min-width: 100px !important;">{row["Veículos"]}</td>'
+        html += f'<td style="padding: 3px 4px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 10px !important;">{row["Destino"]}</td>'
+        html += f'<td style="padding: 3px 4px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; text-align: center !important; font-size: 10px !important;">{row["Semana"]}</td>'
+        html += f'<td style="padding: 3px 4px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; font-size: 10px !important; min-width: 90px !important;">{row["Dia"]}</td>'
         
         # Format date
         data_coleta = row['Data Planejada de Coleta']
@@ -634,7 +646,7 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
                 data_coleta = data_coleta
         else:
             data_coleta = "-"
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; text-align: center !important; font-size: 11px !important;">{data_coleta}</td>'
+        html += f'<td style="padding: 3px 4px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; text-align: center !important; font-size: 10px !important;">{data_coleta}</td>'
         
         # Format time
         hora_coleta = row['Hora Planejada de Coleta']
@@ -645,7 +657,7 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
                 hora_coleta = str(hora_coleta)
         else:
             hora_coleta = "-"
-        html += f'<td style="padding: 4px 5px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; text-align: center !important; font-size: 11px !important;">{hora_coleta}</td>'
+        html += f'<td style="padding: 3px 4px !important; border: 1px solid #ddd !important; background-color: {bg_color} !important; text-align: center !important; font-size: 10px !important;">{hora_coleta}</td>'
         html += "</tr>"
     
     html += """
@@ -653,7 +665,7 @@ def create_email_html_content(group_data, fornecedor_name, sap_code, weeknumber)
     </table>
     
     <table style="border-collapse: collapse !important; width: auto !important; max-width: 650px !important; margin-top: 12px !important;">
-    <tr><td style="padding-top: 10px !important; border-top: 1px solid #dddddd !important; font-size: 12px !important; color: #666666 !important;">Este é um email automatizado. Para dúvidas, entre em contato com a equipe de planejamento.</td></tr>
+    <tr><th style="text-align: left !important; padding-top: 10px !important; border-top: 1px solid #dddddd !important; font-size: 12px !important; font-weight: normal !important; color: #666666 !important;">Este é um email automatizado. Para dúvidas, entre em contato com a equipe de planejamento.</th></tr>
     </table>"""
     
     return html
